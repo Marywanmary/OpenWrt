@@ -1,5 +1,5 @@
 #name: Arthur_Athena-ImmortalWrt
-name: Arthur_Athena-Imm-test
+name: AA-Imm-test
 
 on:
   workflow_dispatch:
