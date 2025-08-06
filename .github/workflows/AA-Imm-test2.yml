@@ -138,17 +138,6 @@ jobs:
         {
         while true; do
         sleep 900  # 15分钟间隔
-        # 内存监控（计算使用率）
-        MEM_TOTAL=$(grep MemTotal /proc/meminfo | awk '{print $2}')
-        MEM_FREE=$(grep MemFree /proc/meminfo | awk '{print $2}')
-        MEM_USED=$(( (MEM_TOTAL - MEM_FREE) * 100 / MEM_TOTAL ))
-        # 硬盘监控（根分区）
-        DISK_USED=$(df -h / | awk 'NR==2 {print $5}')
-        # 输出带 Emoji 的实时日志
-        echo "====================== 📊 资源监控 [$(date +"%H:%M:%S")] ======================"
-        echo "💾 内存使用率: ${MEM_USED}%"
-        echo "💽 硬盘使用(根分区): ${DISK_USED}"
-        echo "===================================================================="
         echo "====================== 编译期间系统占用监控 ======================"
         echo "🕒 监控时间: $(date)"
         echo "💾 磁盘使用情况:"
@@ -157,7 +146,8 @@ jobs:
         free -h
         echo "⚡ CPU 负载:"
         uptime
-        echo "=========================================================="        echo "## 🔄 编译期间系统占用监控 （频率 15分钟）"
+        echo "=========================================================="
+        echo "## 🔄 编译期间系统占用监控 （频率 15分钟）"
         echo "- 🕐 当前时间: $(date)"
         echo "- 💾 磁盘使用率: $(df -h / | tail -1 | awk '{print $5}')"
         echo "- 📦 内存使用率: $(free | grep Mem | awk '{printf("%.1f%%", $3/$2 * 100.0)}')"
