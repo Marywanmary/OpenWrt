@@ -150,6 +150,7 @@ jobs:
         echo "## 🔄 编译期间系统占用监控 （频率 15分钟）"
         echo "- 🕐 当前时间: $(date)"
         echo "- 💾 磁盘使用率: $(df -h / | tail -1 | awk '{print $5}')"
+        echo "- 💾 磁盘/dev/sda1使用率: $(df -h /dev/sda1 | tail -1 | awk '{print $5}')"
         echo "- 📦 内存使用率: $(free | grep Mem | awk '{printf("%.1f%%", $3/$2 * 100.0)}')"
         echo ""
         done
