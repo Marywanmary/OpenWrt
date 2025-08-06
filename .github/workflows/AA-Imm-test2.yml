@@ -151,7 +151,8 @@ jobs:
         echo "- 🕐 当前时间: $(date)"
         echo "- 💾 磁盘使用率: $(df -h / | tail -1 | awk '{print $5}')"
         echo "- 📦 内存使用率: $(free | grep Mem | awk '{printf("%.1f%%", $3/$2 * 100.0)}')"
-        echo ""  done
+        echo ""
+        done
         } &  # 后台运行
         MONITOR_PID=$!
 
@@ -162,7 +163,9 @@ jobs:
         COMPILE_STATUS=$?
 
         # 终止监控进程
-        kill $MONITOR_PID
+        if ps -p $MONITOR_PID > /dev/null; then
+          kill $MONITOR_PID
+        fi
         echo "✅ 编译完成！状态码: $COMPILE_STATUS"
 
         # 设置环境变量
