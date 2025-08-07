@@ -1,45 +1,51 @@
-#name: Arthur_Athena-ImmortalWrt
-name: AA-Imm-test2
+#name: Arthur_Athena-OpenWrt
+name: AA-OpenWrt-T4.Combine
 
 on:
   workflow_dispatch:
-  workflow_call:
-  # schedule:
-  #   - cron: 0 20 * * *
-
+  schedule:
+    - cron: '0 16 * * 4' # 北京时间周五0点 = UTC周四16点 自动触发
+  workflow_run:
+    workflows: ["All-Clean"]
+    types:
+      - completed
 env:
-  REPO_URL: https://github.com/laipeng668/immortalwrt.git
+  REPO_URL: https://github.com/laipeng668/openwrt.git
   REPO_BRANCH: master
-  CONFIG_FILE: configs/Arthur_Athena.config
   GENERAL_CONFIG_FILE: configs/General.config
   DIY_SCRIPT: scripts/script.sh
   CLASH_KERNEL: amd64
   MADS: true
   UPLOAD_BIN_DIR: false
   FIRMWARE_RELEASE: true
-  FIRMWARE_TAG: Arthur&Athena
+  FIRMWARE_TAG: Arthur_Athena
   TZ: Asia/Shanghai
 
 jobs:
   Build:
     runs-on: ubuntu-22.04
-
+    strategy:
+      matrix:
+        config_file: 
+          - configs/Arthur_Athena_Lite.config
+          - configs/Arthur_Athena_Full.config       
+        
     steps:
     - name: Check Server Performance(检查服务器性能)
       run: |
         echo "警告⚠"
         echo "分配的服务器性能有限，若选择的插件过多，务必注意CPU性能！"
-        echo -e "⚡已知CPU型号（降序）：7763，8370C，8272CL，8171M，E5-2673 \n"
+        echo -e "⚡已知CPU型号（降序）：7763，8370C，8272CL，8171M，E5-2673 "
         echo "--------------------------CPU信息--------------------------"
         echo "⚡CPU物理数量：$(cat /proc/cpuinfo | grep "physical id" | sort | uniq | wc -l)"
-        echo -e "⚡CPU核心信息：$(cat /proc/cpuinfo | grep name | cut -f2 -d: | uniq -c) \n"
+        echo -e "⚡CPU核心信息：$(cat /proc/cpuinfo | grep name | cut -f2 -d: | uniq -c) "
         echo "--------------------------内存信息--------------------------"
         echo "📦已安装内存详细信息："
-        echo -e "$(sudo lshw -short -C memory | grep GiB) \n"
+        echo -e "$(sudo lshw -short -C memory | grep GiB) "
         echo "--------------------------硬盘信息--------------------------"
         echo "💾硬盘数量：$(ls /dev/sd* | grep -v [1-9] | wc -l)" && df -hT
 
-    - name: Maximize Available Disk Space(最大化可用磁盘空间​)
+    - name: Maximize Available Disk Space(最大化可用磁盘空间)
       if: env.MADS == 'true'
       uses: AdityaGarg8/remove-unwanted-software@master
       with:
@@ -81,6 +87,9 @@ jobs:
 
     - name: Generate Variables(生成变量)
       run: |
+        # Use the matrix variable for config file
+        CONFIG_FILE="${{ matrix.config_file }}"
+        echo "CONFIG_FILE=$CONFIG_FILE" >> $GITHUB_ENV
         cp $CONFIG_FILE $OPENWRT_PATH/.config
         cd $OPENWRT_PATH
         make defconfig > /dev/null 2>&1
@@ -92,6 +101,11 @@ jobs:
         echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET" >> $GITHUB_ENV
         echo "HASH=$(git log -1 --pretty=format:'%h')" >> $GITHUB_ENV
         echo "CACHE_DATE=$(date +"%Y-%m-%d %H:%M:%S")" >> $GITHUB_ENV
+        # 使用 shell 命令生成日期变量
+        echo "DATE=$(date +"%Y.%m.%d")" >> $GITHUB_ENV
+        # Extract short config filename for better naming
+        CONFIG_FILENAME_SHORT=$(basename "${{ matrix.config_file }}")
+        echo "CONFIG_FILENAME_SHORT=$CONFIG_FILENAME_SHORT" >> $GITHUB_ENV
 
     - name: Cache Toolchain(缓存工具链)
       uses: actions/cache@main
@@ -115,11 +129,11 @@ jobs:
         cd $OPENWRT_PATH
         ./scripts/feeds update -a
         ./scripts/feeds install -a
-  
+
     - name: Load Custom Configuration(加载自定义配置)
       run: |
-       # 调整原合并顺序，设备Config文件放后面，如果有相同配置不同参数以设备Config的为准。
-       # cat $CONFIG_FILE $GENERAL_CONFIG_FILE > $OPENWRT_PATH/.config
+        # Adjust merge order as before, put device config last.
+        # cat $CONFIG_FILE $GENERAL_CONFIG_FILE > $OPENWRT_PATH/.config
         cat $GENERAL_CONFIG_FILE $CONFIG_FILE > $OPENWRT_PATH/.config
         chmod +x $DIY_SCRIPT
         cd $OPENWRT_PATH
@@ -158,19 +172,17 @@ jobs:
         done
         } &  # 后台运行
         MONITOR_PID=$!
-
         # 主编译流程
         cd $OPENWRT_PATH
         echo "🚀 开始编译，线程数: $(nproc)"
+        echo "🔧 正在编译配置文件: ${{ matrix.config_file }}"
         make -j$(nproc) || make -j1 || make -j1 V=s
         COMPILE_STATUS=$?
-
         # 终止监控进程
         if ps -p $MONITOR_PID > /dev/null; then
           kill $MONITOR_PID
         fi
         echo "✅ 编译完成！状态码: $COMPILE_STATUS"
-
         # 设置环境变量
         echo "status=$([[ $COMPILE_STATUS -eq 0 ]] && echo success || echo failed)" >> $GITHUB_OUTPUT
         echo "FILE_DATE=$(date +"%Y.%m.%d")" >> $GITHUB_ENV
@@ -183,18 +195,23 @@ jobs:
       if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
       uses: actions/upload-artifact@main
       with:
-        name: ${{ env.SOURCE_REPO }}-bin-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.FILE_DATE }}
+        name: ${{ env.SOURCE_REPO }}-bin-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.FILE_DATE }}-${{ env.CONFIG_FILENAME_SHORT }}
         path: ${{ env.OPENWRT_PATH }}/bin
 
     - name: Organize Files(整理文件)
       if: steps.compile.outputs.status == 'success'
       run: |
         cd $OPENWRT_PATH/bin/targets/*/*
-        cp $OPENWRT_PATH/.config Arthur.Athena.config
-        mv config.buildinfo Arthur.Athena.config.buildinfo
-        mv immortalwrt-qualcommax-ipq60xx.manifest immortalwrt-qualcommax-ipq60xx-Arthur.Athena.manifest
+        # Use the short config filename for renaming
+        CONFIG_FILENAME_SHORT="${{ env.CONFIG_FILENAME_SHORT }}"
+        echo "CONFIG_FILENAME_SHORT=$CONFIG_FILENAME_SHORT" >> $GITHUB_ENV
+        # Create a unique firmware name based on config file
+        FIRMWARE_NAME="Arthur.Athena.${CONFIG_FILENAME_SHORT%.config}"
+        cp $OPENWRT_PATH/.config "$FIRMWARE_NAME.config"
+        mv config.buildinfo "$FIRMWARE_NAME.config.buildinfo"
+        mv immortalwrt-qualcommax-ipq60xx.manifest immortalwrt-qualcommax-ipq60xx-"$FIRMWARE_NAME".manifest
         mv -f $OPENWRT_PATH/bin/packages/*/*/*.ipk packages
-        tar -zcf Arthur.Athena.Packages.tar.gz packages
+        tar -zcf "$FIRMWARE_NAME.Packages.tar.gz" packages
         rm -rf packages feeds.buildinfo version.buildinfo sha256sums profiles.json
         echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
 
@@ -202,22 +219,22 @@ jobs:
       if: steps.compile.outputs.status == 'success' && env.FIRMWARE_RELEASE != 'true'
       uses: actions/upload-artifact@main
       with:
-        name: ${{ env.SOURCE_REPO }}-firmware-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.FILE_DATE }}
+        name: ${{ env.SOURCE_REPO }}-firmware-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.FILE_DATE }}-${{ env.CONFIG_FILENAME_SHORT }}
         path: ${{ env.FIRMWARE_PATH }}
 
     - name: Upload Firmware To Release(发布固件)
       if: steps.compile.outputs.status == 'success' && env.FIRMWARE_RELEASE == 'true'
       uses: ncipollo/release-action@main
       with:
-        name: ${{ env.DATE }} for ${{ env.FIRMWARE_TAG }}
+        name: ${{ env.DATE }} for ${{ env.FIRMWARE_TAG }}_${{ env.CONFIG_FILENAME_SHORT }}
         allowUpdates: true
         tag: ${{ env.FIRMWARE_TAG }}
         token: ${{ secrets.GITHUB_TOKEN }}
         artifacts: ${{ env.FIRMWARE_PATH }}/*
         body: |
-          **This is OpenWrt Firmware for ${{ env.FIRMWARE_TAG }}**
+          **This is OpenWrt Firmware for ${{ env.FIRMWARE_TAG }}_${{ env.CONFIG_FILENAME_SHORT }}**
           ### 📒 固件信息
-          - 这是开启全功能NSS的6.12内核固件，默认主题为Argon
+          - 这是基于 ${{ env.CONFIG_FILENAME_SHORT }} 配置编译的固件
           - 该固件在ImmortalWrt的基础上，添加了额外的软件包，并添加了若干工具，具体详见对应机型的config
           - 💻 这是 ${{ env.FIRMWARE_TAG }} 平台使用的 OpenWrt 固件
           - ⚽ 固件源码: ${{ env.REPO_URL }}
@@ -230,9 +247,6 @@ jobs:
           - 固件内核版本：**${{ env.VERSION_KERNEL }}**
           - 固件编译前最后一次➦[主源码](${{ env.REPO_URL }})更新记录
           - ${{ env.VERSION_INFO }}
-          - 本次安装luci包：  
-          echo "$(grep -oP "luci-app(-[a-zA-Z0-9]{1,}){1,}" ./firmware/*.manifest | awk -F":" '{print $NF}')"
-
 
     - name: Delete Old Cache(删除旧缓存)
       run: |
