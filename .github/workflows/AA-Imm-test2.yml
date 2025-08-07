@@ -118,7 +118,9 @@ jobs:
   
     - name: Load Custom Configuration(加载自定义配置)
       run: |
-        cat $CONFIG_FILE $GENERAL_CONFIG_FILE > $OPENWRT_PATH/.config
+       # 调整原合并顺序，设备Config文件放后面，如果有相同配置不同参数以设备Config的为准。
+       # cat $CONFIG_FILE $GENERAL_CONFIG_FILE > $OPENWRT_PATH/.config
+        cat $GENERAL_CONFIG_FILE $CONFIG_FILE > $OPENWRT_PATH/.config
         chmod +x $DIY_SCRIPT
         cd $OPENWRT_PATH
         $GITHUB_WORKSPACE/$DIY_SCRIPT
