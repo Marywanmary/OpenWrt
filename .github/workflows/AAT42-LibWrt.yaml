@@ -1,0 +1,270 @@
+#name: Arthur_Athena-ImmortalWrt
+name: AAT42.LibWrt
+on:
+  workflow_dispatch: # 手动触发
+  schedule:
+    - cron: '0 16 * * 4' # 北京时间周五0点 = UTC周四16点 自动触发
+  workflow_run:
+    workflows: ["All-Clean"]
+    types:
+      - completed # 当 "All-Clean" 工作流完成后触发
+env:
+  REPO_URL: https://github.com/laipeng668/openwrt-6.x.git # 源码仓库URL
+  REPO_BRANCH: k6.12-nss # 源码分支
+  GENERAL_CONFIG_FILE: configs/General.config # 通用配置文件路径
+  DIY_SCRIPT: scripts/script.sh # 自定义脚本路径
+  CLASH_KERNEL: amd64 # Clash内核架构
+  MADS: true # 是否最大化可用磁盘空间
+  UPLOAD_BIN_DIR: false # 是否上传bin目录
+  FIRMWARE_RELEASE: true # 是否发布固件
+  FIRMWARE_TAG: Arthur_Athena # 固件标签
+  TZ: Asia/Shanghai # 时区
+jobs:
+  Build: # 构建任务
+    runs-on: ubuntu-22.04 # 运行在Ubuntu 22.04系统上
+    strategy:
+      matrix: # 矩阵策略，用于并行构建不同的配置文件
+        config_file: 
+          - configs/Arthur_Athena_Lite.config # 轻量版配置文件
+          - configs/Arthur_Athena_Full.config # 完整版配置文件       
+    steps:
+    - name: Check Server Performance(检查服务器性能)
+      run: |
+        echo "警告⚠"
+        echo "分配的服务器性能有限，若选择的插件过多，务必注意CPU性能！"
+        echo -e "⚡已知CPU型号（降序）：7763，8370C，8272CL，8171M，E5-2673 "
+        echo "--------------------------CPU信息--------------------------"
+        echo "⚡CPU物理数量：$(cat /proc/cpuinfo | grep "physical id" | sort | uniq | wc -l)"
+        echo -e "⚡CPU核心信息：$(cat /proc/cpuinfo | grep name | cut -f2 -d: | uniq -c) "
+        echo "--------------------------内存信息--------------------------"
+        echo "📦已安装内存详细信息："
+        echo -e "$(sudo lshw -short -C memory | grep GiB) "
+        echo "--------------------------硬盘信息--------------------------"
+        echo "💾硬盘数量：$(ls /dev/sd* | grep -v [1-9] | wc -l)" && df -hT
+    - name: Maximize Available Disk Space(最大化可用磁盘空间)
+      if: env.MADS == 'true' # 仅当 MADS 为 true 时执行
+      uses: AdityaGarg8/remove-unwanted-software@master
+      with:
+        remove-dotnet: "true"
+        remove-android: "true"
+        remove-haskell: "true"
+        remove-codeql: "true"
+        remove-docker-images: "true"
+        remove-large-packages: "true"
+        remove-cached-tools: "true"
+        remove-swapfile: "true"
+    - name: Initialization Environment(初始化环境)
+      env:
+        DEBIAN_FRONTEND: noninteractive # 非交互模式安装软件包
+      run: |
+        sudo -E apt-get -y update
+        sudo -E apt-get -y install $(curl -fsSL is.gd/depends_ubuntu_2204)
+        sudo -E systemctl daemon-reload
+        sudo -E apt-get -y autoremove --purge
+        sudo -E apt-get -y clean
+        sudo timedatectl set-timezone "$TZ" # 设置时区
+    - name: Checkout(检出代码)
+      uses: actions/checkout@main # 检出当前仓库代码
+    - name: Clone Source Code(克隆源代码)
+      run: |
+        df -hT $GITHUB_WORKSPACE # 查看工作区磁盘使用情况
+        sudo mkdir -p /mnt/openwrt # 创建挂载目录
+        sudo chown -R $(id -u):$(id -g) /mnt/openwrt # 设置权限
+        git clone --depth 1 -b $REPO_BRANCH --single-branch $REPO_URL /mnt/openwrt # 克隆指定分支的代码
+        cd /mnt/openwrt
+        echo "OPENWRT_PATH=$PWD" >> $GITHUB_ENV # 设置环境变量
+        VERSION_INFO=$(git show -s --date=short --format="作者: %an<br/>时间: %cd<br/>内容: %s<br/>hash: %H") # 获取版本信息
+        echo "VERSION_INFO=$VERSION_INFO" >> $GITHUB_ENV
+        VERSION_KERNEL=$(grep -oP 'LINUX_KERNEL_HASH-\K[0-9]+\.[0-9]+\.[0-9]+' target/linux/generic/kernel-6.12) # 获取内核版本
+        echo "VERSION_KERNEL=$VERSION_KERNEL" >> $GITHUB_ENV
+    - name: Generate Variables(生成变量)
+      run: |
+        # 使用矩阵变量指定的配置文件
+        CONFIG_FILE="${{ matrix.config_file }}"
+        echo "CONFIG_FILE=$CONFIG_FILE" >> $GITHUB_ENV
+        cp $CONFIG_FILE $OPENWRT_PATH/.config # 复制配置文件到源码根目录
+        cd $OPENWRT_PATH
+        make defconfig > /dev/null 2>&1 # 生成默认配置
+        SOURCE_REPO="$(echo $REPO_URL | awk -F '/' '{print $(NF)}')" # 提取仓库名称
+        echo "SOURCE_REPO=$SOURCE_REPO" >> $GITHUB_ENV
+        
+        # --- 新增：根据 SOURCE_REPO 映射缩写 ---
+        case "$SOURCE_REPO" in
+          "immortalwrt.git")
+            REPO_ABBREV="ImmWrt"
+            ;;
+          "openwrt.git")
+            REPO_ABBREV="OpenWrt"
+            ;;
+          "openwrt-6.x.git")
+            REPO_ABBREV="LibWrt"
+            ;;
+          *)
+            REPO_ABBREV="$SOURCE_REPO" # fallback to full name if unknown
+            ;;
+        esac
+        echo "REPO_ABBREV=$REPO_ABBREV" >> $GITHUB_ENV
+
+        echo "HASH=$(git log -1 --pretty=format:'%h')" >> $GITHUB_ENV # 获取提交哈希
+        echo "CACHE_DATE=$(date +"%Y-%m-%d %H:%M:%S")" >> $GITHUB_ENV # 获取当前时间
+        # 使用 shell 命令生成日期变量
+        echo "DATE=$(date +"%Y.%m.%d")" >> $GITHUB_ENV
+        # 提取短配置文件名用于更好的命名
+        CONFIG_FILENAME_SHORT=$(basename "${{ matrix.config_file }}")
+        echo "CONFIG_FILENAME_SHORT=$CONFIG_FILENAME_SHORT" >> $GITHUB_ENV
+    - name: Cache Toolchain(缓存工具链)
+      uses: actions/cache@main
+      with:
+        key: ${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.HASH }} ${{ env.CACHE_DATE }} # 缓存键
+        restore-keys: ${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}- # 恢复键
+        path: |
+          ${{ env.OPENWRT_PATH }}/.ccache
+          ${{ env.OPENWRT_PATH }}/staging_dir # 缓存路径
+    - name: Refresh The Cache(刷新缓存)
+      run: |
+        if [ -d "$OPENWRT_PATH/staging_dir" ]; then
+          find "$OPENWRT_PATH/staging_dir" -type d -name "stamp" -not -path "*target*" | while read -r dir; do
+              find "$dir" -type f -exec touch {} +
+          done
+        fi
+    - name: Install Feeds(安装feeds)
+      run: |
+        cd $OPENWRT_PATH
+        ./scripts/feeds update -a # 更新feeds
+        ./scripts/feeds install -a # 安装feeds
+    - name: Load Custom Configuration(加载自定义配置)
+      run: |
+        # 调整合并顺序，将设备配置放在最后。
+        # cat $CONFIG_FILE $GENERAL_CONFIG_FILE > $OPENWRT_PATH/.config
+        cat $GENERAL_CONFIG_FILE $CONFIG_FILE > $OPENWRT_PATH/.config # 合并配置文件
+        chmod +x $DIY_SCRIPT # 添加执行权限
+        cd $OPENWRT_PATH
+        $GITHUB_WORKSPACE/$DIY_SCRIPT # 执行自定义脚本
+    - name: Download DL Package(下载DL软件包)
+      run: |
+        cd $OPENWRT_PATH
+        make defconfig # 生成默认配置
+        make download -j$(nproc) # 下载所需软件包
+        find dl -size -1024c -exec ls -l {} \; # 查找小于1KB的文件
+        find dl -size -1024c -exec rm -f {} \; # 删除小于1KB的文件
+    - name: Compile Firmware(开始编译固件)
+      id: compile # 设置步骤ID
+      run: |
+        # 启动后台资源监控（15分钟间隔）
+        {
+        while true; do
+        sleep 900  # 15分钟间隔
+        echo "====================== 编译期间系统占用监控 ======================"
+        echo "🕒 监控时间: $(date)"
+        echo "💾 磁盘使用情况:"
+        df -hT | grep -E '^(Filesystem|/dev/)'
+        echo "📦 内存使用情况:"
+        free -h
+        echo "⚡ CPU 负载:"
+        uptime
+        echo "=========================================================="
+        echo "## 🔄 编译期间系统占用监控 （频率 15分钟）"
+        echo "- 🕐 当前时间: $(date)"
+        #echo "- 💾 磁盘/dev/root使用率: $(df -h / | tail -1 | awk '{print $5}')"
+        echo "- 💾 磁盘/dev/sda1使用率: $(df -h /dev/sda1 | tail -1 | awk '{print $5}')"
+        echo "- 📦 内存使用率: $(free | grep Mem | awk '{printf("%.1f%%", $3/$2 * 100.0)}')"
+        echo ""
+        done
+        } &  # 后台运行
+        MONITOR_PID=$!
+        # 主编译流程
+        cd $OPENWRT_PATH
+        echo "🚀 开始编译，线程数: $(nproc)"
+        echo "🔧 正在编译配置文件: ${{ matrix.config_file }}"
+        make -j$(nproc) || make -j1 || make -j1 V=s # 编译固件
+        COMPILE_STATUS=$?
+        # 终止监控进程
+        if ps -p $MONITOR_PID > /dev/null; then
+          kill $MONITOR_PID
+        fi
+        echo "✅ 编译完成！状态码: $COMPILE_STATUS"
+        # 设置环境变量
+        echo "status=$([[ $COMPILE_STATUS -eq 0 ]] && echo success || echo failed)" >> $GITHUB_OUTPUT
+        echo "FILE_DATE=$(date +"%Y.%m.%d")" >> $GITHUB_ENV
+    - name: Check Space Usage(检查空间使用情况)
+      if: (!cancelled()) # 仅在工作流未取消时执行
+      run: df -hT # 查看磁盘使用情况
+    - name: Upload Bin Directory(上传固件)
+      if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true' # 仅当编译成功且UPLOAD_BIN_DIR为true时执行
+      uses: actions/upload-artifact@main
+      with:
+        name: ${{ env.SOURCE_REPO }}-bin-${{ env.FILE_DATE }}-${{ env.CONFIG_FILENAME_SHORT }} # 上传的文件名
+        path: ${{ env.OPENWRT_PATH }}/bin # 上传路径
+    - name: Organize Files(整理文件)
+      if: steps.compile.outputs.status == 'success' # 仅当编译成功时执行
+      run: |
+        cd $OPENWRT_PATH/bin/targets/*/* # 进入目标目录
+        # 使用短配置文件名进行重命名
+        CONFIG_FILENAME_SHORT="${{ env.CONFIG_FILENAME_SHORT }}"
+        echo "CONFIG_FILENAME_SHORT=$CONFIG_FILENAME_SHORT" >> $GITHUB_ENV
+        # 根据配置文件创建唯一的固件名称
+        FIRMWARE_NAME="Arthur.Athena.${CONFIG_FILENAME_SHORT%.config}"
+        cp $OPENWRT_PATH/.config "$FIRMWARE_NAME.config" # 复制并重命名 .config 文件
+        mv config.buildinfo "$FIRMWARE_NAME.config.buildinfo" # 重命名 .buildinfo 文件
+        # --- 修正：动态获取 manifest 文件名并重命名 ---
+        # 获取当前目录下的 manifest 文件
+        MANIFEST_FILE=$(find . -maxdepth 1 -name "*.manifest" -type f | head -n 1)
+        if [ -n "$MANIFEST_FILE" ]; then
+          echo "Found manifest file: $MANIFEST_FILE"
+          # 修正 manifest 文件名，不再使用固定的前缀
+          ORIGINAL_MANIFEST_BASE=$(basename "$MANIFEST_FILE" .manifest)
+          echo "Original manifest base name: $ORIGINAL_MANIFEST_BASE"
+          # 新的 manifest 文件名格式：{repo_prefix}_{device_name}_{config_type}.manifest
+          # 注意：此处暂时保持原逻辑，实际应根据设备和 repo 信息动态生成
+          # 但由于当前环境变量限制，先维持原逻辑
+          mv "$MANIFEST_FILE" "${ORIGINAL_MANIFEST_BASE}-${FIRMWARE_NAME}.manifest"
+        else
+          echo "No manifest file found."
+        fi
+        mv -f $OPENWRT_PATH/bin/packages/*/*/*.ipk packages # 移动 .ipk 包
+        tar -zcf "$FIRMWARE_NAME.Packages.tar.gz" packages # 打包 .ipk 包
+        rm -rf packages feeds.buildinfo version.buildinfo sha256sums profiles.json # 清理临时文件
+        echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV # 设置固件路径环境变量
+    - name: Upload Firmware To Artifact(将固件上传到Artifact)
+      if: steps.compile.outputs.status == 'success' && env.FIRMWARE_RELEASE != 'true' # 仅当编译成功且不发布固件时执行
+      uses: actions/upload-artifact@main
+      with:
+        name: ${{ env.SOURCE_REPO }}-firmware-${{ env.FILE_DATE }}-${{ env.CONFIG_FILENAME_SHORT }} # 上传的文件名
+        path: ${{ env.FIRMWARE_PATH }} # 上传路径
+    - name: Upload Firmware To Release(发布固件)
+      if: steps.compile.outputs.status == 'success' && env.FIRMWARE_RELEASE == 'true' # 仅当编译成功且发布固件时执行
+      uses: ncipollo/release-action@main
+      with:
+        name: ${{ env.DATE }} for ${{ env.RELEASE_REPO_ABBREV }}_${{ env.FIRMWARE_TAG }}_${{ env.RELEASE_CONFIG_TYPE }} Latest # 发布名称
+        allowUpdates: true # 允许更新
+        tag: ${{ env.FIRMWARE_TAG }} # 标签
+        token: ${{ secrets.GITHUB_TOKEN }} # GitHub令牌
+        artifacts: ${{ env.FIRMWARE_PATH }}/* # 发布的文件
+        body: |
+          **This is OpenWrt Firmware for ${{ env.RELEASE_REPO_ABBREV }}_${{ env.FIRMWARE_TAG }}_${{ env.RELEASE_CONFIG_TYPE }}**
+          ### 📒 固件信息
+          - 这是基于 ${{ env.RELEASE_CONFIG_TYPE }} 配置编译的固件
+          - 该固件在${{ env.RELEASE_REPO_ABBREV }}的基础上，添加了额外的软件包，并添加了若干工具，具体详见对应机型的config
+          - 💻 这是 ${{ env.FIRMWARE_TAG }} 平台使用的 OpenWrt 固件
+          - ⚽ 固件源码: ${{ env.REPO_URL }}
+          - 💝 源码分支: ${{ env.REPO_BRANCH }}
+          - 🌐 默认地址: **192.168.111.1**
+          - 🔑 默认密码: none
+          - 🚀 WiFi名称: **Star**
+          - 🔑 WiFi密码: 12345678
+          ### 📒 固件版本
+          - 固件内核版本：**${{ env.VERSION_KERNEL }}**
+          - 固件编译前最后一次➦[主源码](${{ env.REPO_URL }})更新记录
+          - ${{ env.VERSION_INFO }}
+    - name: Delete Old Cache(删除旧缓存)
+      run: |
+        # 获取缓存列表并删除
+        gh cache list --key ${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.HASH }}- --json key --jq '.[] | .key' | while read -r key; do
+          gh cache delete "$key"
+        done
+        # 输出缓存状态
+        echo "========cache status========"
+        echo "ccache: $(du -sh $OPENWRT_PATH/.ccache | cut -f 1)"
+        echo "staging: $(du -sh $OPENWRT_PATH/staging_dir | cut -f 1)"
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # GitHub令牌
