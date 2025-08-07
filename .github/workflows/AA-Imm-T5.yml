@@ -28,7 +28,7 @@ jobs:
           - master
           - k6.12-nss
         config_file: 
-          - configs/Arthur_Athena_Lite.config,
+          - configs/Arthur_Athena_Lite.config
           - configs/Arthur_Athena_Full.config       
     steps:
     - name: Check Server Performance(检查服务器性能)
