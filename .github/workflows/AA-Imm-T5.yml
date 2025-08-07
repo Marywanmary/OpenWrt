@@ -16,20 +16,26 @@ env:
   FIRMWARE_RELEASE: true
   FIRMWARE_TAG: Arthur_Athena
   TZ: Asia/Shanghai
+  
 jobs:
   Build:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
-        repo_url: 
-          - https://github.com/laipeng668/openwrt.git
-          - https://github.com/laipeng668/openwrt-6.x.git
-        repo_branch:
-          - master
-          - k6.12-nss
-        config_file: 
-          - configs/Arthur_Athena_Lite.config
-          - configs/Arthur_Athena_Full.config       
+        include:
+          - repo_url: https://github.com/laipeng668/openwrt.git
+            repo_branch: master
+            config_file: configs/Arthur_Athena_Lite.config
+          - repo_url: https://github.com/laipeng668/openwrt.git
+            repo_branch: master
+            config_file: configs/Arthur_Athena_Full.config
+          - repo_url: https://github.com/laipeng668/openwrt-6.x.git
+            repo_branch: master
+            config_file: configs/Arthur_Athena_Lite.config
+          - repo_url: https://github.com/laipeng668/openwrt-6.x.git
+            repo_branch: k6.12-nss
+            config_file: configs/Arthur_Athena_Full.config
+            
     steps:
     - name: Check Server Performance(检查服务器性能)
       run: |
