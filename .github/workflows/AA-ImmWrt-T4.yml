@@ -1,5 +1,5 @@
 #name: Arthur_Athena-ImmortalWrt
-name: AA-Imm-T4.Combine
+name: AA-ImmWrt-T4.Combine
 
 on:
   workflow_dispatch:
