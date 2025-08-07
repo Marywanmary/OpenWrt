@@ -2,10 +2,13 @@
 name: AA-Imm-test3.Full
 
 on:
-  workflow_dispatch:
-  workflow_call:
-  # schedule:
-  #   - cron: 0 20 * * *
+  workflow_dispatch: 
+  schedule:
+    - cron: '0 16 * * 4' # 北京时间周五0点 = UTC周四16点 自动触发
+  workflow_run:
+    workflows: ["All-Clean"] # 在"All-Clean"工作流完成后触发
+    types:
+      - completed
 
 env:
   REPO_URL: https://github.com/laipeng668/immortalwrt.git
@@ -17,8 +20,9 @@ env:
   MADS: true
   UPLOAD_BIN_DIR: false
   FIRMWARE_RELEASE: true
-  FIRMWARE_TAG: Arthur&Athena
+  FIRMWARE_TAG: Arthur-Athena
   TZ: Asia/Shanghai
+  DATE: ${{ date('YYYY.MM.DD') }} 
 
 jobs:
   Build:
@@ -92,7 +96,8 @@ jobs:
         echo "DEVICE_SUBTARGET=$DEVICE_SUBTARGET" >> $GITHUB_ENV
         echo "HASH=$(git log -1 --pretty=format:'%h')" >> $GITHUB_ENV
         echo "CACHE_DATE=$(date +"%Y-%m-%d %H:%M:%S")" >> $GITHUB_ENV
-
+        echo "DATE=$(date +"%Y.%m.%d")" >> $GITHUB_ENV
+        
     - name: Cache Toolchain(缓存工具链)
       uses: actions/cache@main
       with:
@@ -230,9 +235,6 @@ jobs:
           - 固件内核版本：**${{ env.VERSION_KERNEL }}**
           - 固件编译前最后一次➦[主源码](${{ env.REPO_URL }})更新记录
           - ${{ env.VERSION_INFO }}
-          - 本次安装luci包：  
-          echo "$(grep -oP "luci-app(-[a-zA-Z0-9]{1,}){1,}" ./firmware/*.manifest | awk -F":" '{print $NF}')"
-
 
     - name: Delete Old Cache(删除旧缓存)
       run: |
