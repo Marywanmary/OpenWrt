@@ -33,7 +33,7 @@ jobs:
           # 更新系统包管理器索引
           sudo apt-get update
           # 安装编译OpenWrt所需的软件包
-          sudo apt-get install -y build-essential libncurses5-dev zlib1g-dev gawk git ccache gettext libssl-dev libelf-dev flex bison bc wget unzip python3 libpython3-dev
+          sudo apt-get install -y build-essential libncurses5-dev zlib1g-dev gawk git ccache gettext libssl-dev libelf-dev flex bison bc wget unzip python3 libpython3-dev libarchive-tools
       
       # 步骤4：清理可能存在的旧文件 - 解决前置检查失败问题
       - name: 清理旧编译文件
@@ -42,6 +42,8 @@ jobs:
           rm -rf openwrt-source
           # 清理可能的缓存文件
           rm -rf ~/.ccache
+          # 清理系统缓存
+          sudo apt-get clean
           
       # 步骤5：克隆OpenWrt源码仓库 - 获取指定分支的源代码
       - name: 克隆OpenWrt源码
@@ -74,12 +76,13 @@ jobs:
           cd openwrt-source
           # 清理之前的配置和构建文件
           echo "开始清理..."
-          make clean
-          make dirclean
-          # 删除staging_dir目录
+          # 强制删除所有相关目录
           rm -rf staging_dir
-          # 删除build_dir目录
           rm -rf build_dir
+          rm -rf tmp
+          rm -rf .config
+          # 重新创建.config目录
+          mkdir -p .config
           # 执行OpenWrt的配置脚本，将配置文件应用到源码中
           echo "开始配置..."
           make defconfig
@@ -94,7 +97,7 @@ jobs:
           make dirclean
           # 执行命令来更新软件包列表，确保获取最新版本
           echo "更新软件包..."
-          make package/compile V=s
+          make package/download V=s
           
       # 步骤9：开始编译OpenWrt固件 - 核心编译步骤
       - name: 开始编译固件
@@ -107,7 +110,14 @@ jobs:
           ls -la
           # 使用FORCE=1强制编译，解决前置检查问题
           echo "开始编译..."
-          make -j$(nproc) V=s FORCE=1
+          # 先尝试简单的编译命令
+          make -j1 V=s FORCE=1 || \
+          # 如果失败，再尝试更彻底的清理和编译
+          (echo "第一次编译失败，进行彻底清理..." && \
+          rm -rf staging_dir build_dir tmp && \
+          make clean && \
+          make defconfig && \
+          make -j1 V=s FORCE=1)
           
       # 步骤10：检查编译结果 - 验证是否成功生成固件
       - name: 检查编译结果
