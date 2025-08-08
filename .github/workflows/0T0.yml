@@ -1,5 +1,5 @@
 # 定义工作流名称 - 当触发时会显示在GitHub Actions界面中
-name: 0T0
+name: OpenWrt-Firmware-Build
 
 # 定义触发条件 - 使用 workflow_dispatch 触发方式
 on:
@@ -19,128 +19,123 @@ jobs:
     # 定义该任务需要执行的步骤集合
     steps:
       # 步骤1：检出代码 - 将仓库代码下载到工作环境中
-      - name: 检出源代码
+      - name: Checkout Source Code
         uses: actions/checkout@v4
         
-      # 步骤2：设置工作目录 - 将当前工作目录切换到仓库根目录
-      - name: 设置工作目录
+      # 步骤2：安装编译所需依赖包 - 为后续编译准备环境
+      - name: Install Build Dependencies
         run: |
-          cd ${{ github.workspace }}
-          
-      # 步骤3：安装编译所需依赖包 - 为后续编译准备环境
-      - name: 安装编译依赖
-        run: |
-          # 更新系统包管理器索引
+          echo "Installing build dependencies..."
           sudo apt-get update
-          # 安装编译OpenWrt所需的软件包
-          sudo apt-get install -y build-essential libncurses5-dev zlib1g-dev gawk git ccache gettext libssl-dev libelf-dev flex bison bc wget unzip python3 libpython3-dev libarchive-tools
-      
-      # 步骤4：清理可能存在的旧文件 - 解决前置检查失败问题
-      - name: 清理旧编译文件
+          sudo apt-get install -y \
+            build-essential \
+            libncurses5-dev \
+            zlib1g-dev \
+            gawk \
+            git \
+            ccache \
+            gettext \
+            libssl-dev \
+            libelf-dev \
+            flex \
+            bison \
+            bc \
+            wget \
+            unzip \
+            python3 \
+            libpython3-dev \
+            libarchive-tools
+          
+      # 步骤3：清理可能存在的旧文件 - 解决前置检查失败问题
+      - name: Clean Previous Build Files
         run: |
-          # 删除可能存在的旧编译目录
+          echo "Cleaning previous build files..."
           rm -rf openwrt-source
-          # 清理可能的缓存文件
           rm -rf ~/.ccache
-          # 清理系统缓存
           sudo apt-get clean
           
-      # 步骤5：克隆OpenWrt源码仓库 - 获取指定分支的源代码
-      - name: 克隆OpenWrt源码
+      # 步骤4：克隆OpenWrt源码仓库 - 获取指定分支的源代码
+      - name: Clone OpenWrt Source
         run: |
-          # 克隆指定的OpenWrt仓库，分支为k6.12-nss
+          echo "Cloning OpenWrt source code..."
           git clone --branch k6.12-nss https://github.com/laipeng668/openwrt-6.x.git openwrt-source
-          # 进入源码目录
           cd openwrt-source
-          # 确保所有子模块都已初始化
           git submodule update --init --recursive
-          # 检查是否成功克隆
-          echo "克隆完成，当前目录内容:"
+          echo "Clone completed. Directory contents:"
           ls -la
           
-      # 步骤6：复制配置文件到正确位置 - 将我们提供的配置文件复制到OpenWrt源码目录
-      - name: 复制配置文件
+      # 步骤5：复制配置文件到正确位置 - 将我们提供的配置文件复制到OpenWrt源码目录
+      - name: Copy Configuration File
         run: |
-          # 创建OpenWrt源码目录下的config目录（如果不存在）
+          echo "Copying configuration file..."
           mkdir -p openwrt-source/.config
-          # 将我们的配置文件从仓库根目录复制到OpenWrt源码目录
           cp configs/Arthur_Athena_Full.config openwrt-source/.config/config
-          # 显示配置文件内容
-          echo "配置文件内容:"
+          echo "Configuration file content:"
           cat openwrt-source/.config/config
           
-      # 步骤7：进入OpenWrt源码目录并初始化配置
-      - name: 初始化OpenWrt配置
+      # 步骤6：初始化OpenWrt配置
+      - name: Initialize OpenWrt Configuration
         run: |
-          # 进入OpenWrt源码目录
+          echo "Initializing OpenWrt configuration..."
           cd openwrt-source
           # 清理之前的配置和构建文件
-          echo "开始清理..."
-          # 强制删除所有相关目录
-          rm -rf staging_dir
-          rm -rf build_dir
-          rm -rf tmp
-          rm -rf .config
-          # 重新创建.config目录
+          rm -rf staging_dir build_dir tmp .config
           mkdir -p .config
-          # 执行OpenWrt的配置脚本，将配置文件应用到源码中
-          echo "开始配置..."
+          # 执行OpenWrt的配置脚本
           make defconfig
           
-      # 步骤8：下载并更新软件包列表 - 获取所有需要的软件包
-      - name: 更新软件包列表
+      # 步骤7：更新软件包列表
+      - name: Update Package List
         run: |
-          # 进入OpenWrt源码目录
+          echo "Updating package list..."
           cd openwrt-source
-          # 清理之前可能存在的缓存
-          echo "清理缓存..."
           make dirclean
-          # 执行命令来更新软件包列表，确保获取最新版本
-          echo "更新软件包..."
           make package/download V=s
           
-      # 步骤9：开始编译OpenWrt固件 - 核心编译步骤
-      - name: 开始编译固件
+      # 步骤8：开始编译OpenWrt固件 - 核心编译步骤
+      - name: Compile OpenWrt Firmware
         run: |
-          # 进入OpenWrt源码目录
+          echo "Starting firmware compilation..."
           cd openwrt-source
-          # 显示当前目录信息
-          echo "当前目录信息:"
-          pwd
-          ls -la
-          # 使用FORCE=1强制编译，解决前置检查问题
-          echo "开始编译..."
-          # 先尝试简单的编译命令
-          make -j1 V=s FORCE=1 || \
-          # 如果失败，再尝试更彻底的清理和编译
-          (echo "第一次编译失败，进行彻底清理..." && \
-          rm -rf staging_dir build_dir tmp && \
-          make clean && \
-          make defconfig && \
-          make -j1 V=s FORCE=1)
           
-      # 步骤10：检查编译结果 - 验证是否成功生成固件
-      - name: 检查编译结果
+          # 预检查编译环境
+          if [ ! -f ".config/config" ]; then
+            echo "❌ Configuration file not found!"
+            exit 1
+          fi
+          
+          # 尝试编译，带合理的错误处理
+          echo "Compiling with parallel jobs..."
+          make -j$(nproc) V=s || {
+            echo "⚠️ First compilation attempt failed, trying recovery..."
+            # 清理并重新配置
+            rm -rf staging_dir build_dir tmp
+            make clean
+            make defconfig
+            echo "Retrying compilation..."
+            make -j$(nproc) V=s
+          }
+          
+      # 步骤9：检查编译结果 - 验证是否成功生成固件
+      - name: Verify Compilation Result
         run: |
-          # 进入OpenWrt源码目录
+          echo "Checking compilation results..."
           cd openwrt-source
-          # 查找生成的固件文件，通常位于bin/targets目录下
-          echo "编译完成的固件文件:"
-          ls -la bin/targets/*
+          echo "Generated firmware files:"
+          find bin/targets -name "*.img" -o -name "*.bin" -o -name "*.tar.gz" | head -10
           
-      # 步骤11：上传编译产物 - 将生成的固件文件上传到GitHub
-      - name: 上传固件
+      # 步骤10：上传编译产物 - 将生成的固件文件上传到GitHub
+      - name: Upload Firmware
         uses: actions/upload-artifact@v4
         with:
-          # 设置上传的文件名前缀
-          name: OpenWrt-Firmware
-          # 指定要上传的文件路径模式
+          name: OpenWrt-Firmware-${{ github.run_number }}
           path: |
-            openwrt-source/bin/targets/*
-            
-      # 步骤12：显示编译完成信息
-      - name: 编译完成提示
+            openwrt-source/bin/targets/**
+          retention-days: 7
+          
+      # 步骤11：显示编译完成信息
+      - name: Compilation Complete
         run: |
-          echo "✅ OpenWrt 编译已完成！"
-          echo "🔧 固件文件已保存在 openwrt-source/bin/targets/ 目录下"
-          echo "📦 可以在 GitHub Actions 的 Artifacts 中下载固件文件"
+          echo "✅ OpenWrt Firmware Build Completed Successfully!"
+          echo "🔧 Firmware files are available in the Artifacts section"
+          echo "📦 Run number: ${{ github.run_number }}"
