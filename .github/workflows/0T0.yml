@@ -1,8 +1,9 @@
 # 定义工作流名称 - 当触发时会显示在GitHub Actions界面中
 name: OpenWrt 编译工作流
 
-# 定义触发条件 - 这里设置为空，表示不会自动触发，需要手动触发
-on: {}
+# 定义触发条件 - 使用 workflow_dispatch 触发方式
+on:
+  workflow_dispatch:
 
 # 定义工作流的权限设置 - 给予读写权限以进行构建
 permissions:
@@ -82,7 +83,7 @@ jobs:
           echo "编译完成的固件文件:"
           ls -la bin/targets/*
           
-      # 步骤10：上传编译产物 - 将生成的固件文件上传到GitHub（仅用于本地自用）
+      # 步骤10：上传编译产物 - 将生成的固件文件上传到GitHub
       - name: 上传固件
         uses: actions/upload-artifact@v4
         with:
@@ -92,16 +93,7 @@ jobs:
           path: |
             openwrt-source/bin/targets/*
             
-      # 步骤11：创建发布版本 - 由于是自用，这里不创建实际的发布版本
-      - name: 清理编译缓存
-        if: always()
-        run: |
-          # 进入OpenWrt源码目录
-          cd openwrt-source
-          # 清理编译缓存，释放空间
-          make clean
-          
-      # 步骤12：显示编译完成信息
+      # 步骤11：显示编译完成信息
       - name: 编译完成提示
         run: |
           echo "✅ OpenWrt 编译已完成！"
