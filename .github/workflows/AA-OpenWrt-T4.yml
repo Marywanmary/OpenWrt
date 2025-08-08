@@ -18,7 +18,7 @@ env:
   MADS: true
   UPLOAD_BIN_DIR: true
   FIRMWARE_RELEASE: true
-  FIRMWARE_TAG: Arthur_Athena
+  FIRMWARE_TAG: IPQ60XX_OpenWrt
   TZ: Asia/Shanghai
 
 jobs:
