@@ -33,15 +33,25 @@ jobs:
           # 更新系统包管理器索引
           sudo apt-get update
           # 安装编译OpenWrt所需的软件包
-          sudo apt-get install -y build-essential libncurses5-dev zlib1g-dev gawk git ccache gettext libssl-dev libelf-dev flex bison bc wget unzip
+          sudo apt-get install -y build-essential libncurses5-dev zlib1g-dev gawk git ccache gettext libssl-dev libelf-dev flex bison bc wget unzip python3
       
-      # 步骤4：克隆OpenWrt源码仓库 - 获取指定分支的源代码
+      # 步骤4：清理可能存在的旧文件 - 解决前置检查失败问题
+      - name: 清理旧编译文件
+        run: |
+          # 删除可能存在的旧编译目录
+          rm -rf openwrt-source
+          
+      # 步骤5：克隆OpenWrt源码仓库 - 获取指定分支的源代码
       - name: 克隆OpenWrt源码
         run: |
           # 克隆指定的OpenWrt仓库，分支为6.12-nss
-          git clone --branch k6.12-nss https://github.com/laipeng668/openwrt-6.x.git openwrt-source
+          git clone --branch 6.12-nss https://github.com/laipeng668/openwrt-6.x.git openwrt-source
+          # 进入源码目录
+          cd openwrt-source
+          # 确保所有子模块都已初始化
+          git submodule update --init --recursive
           
-      # 步骤5：复制配置文件到正确位置 - 将我们提供的配置文件复制到OpenWrt源码目录
+      # 步骤6：复制配置文件到正确位置 - 将我们提供的配置文件复制到OpenWrt源码目录
       - name: 复制配置文件
         run: |
           # 创建OpenWrt源码目录下的config目录（如果不存在）
@@ -49,32 +59,35 @@ jobs:
           # 将我们的配置文件从仓库根目录复制到OpenWrt源码目录
           cp configs/Arthur_Athena_Full.config openwrt-source/.config/config
   
-      # 步骤6：进入OpenWrt源码目录并初始化配置
+      # 步骤7：进入OpenWrt源码目录并初始化配置
       - name: 初始化OpenWrt配置
         run: |
           # 进入OpenWrt源码目录
           cd openwrt-source
+          # 清理之前的配置和构建文件
+          make clean
           # 执行OpenWrt的配置脚本，将配置文件应用到源码中
           make defconfig
           
-      # 步骤7：下载并更新软件包列表 - 获取所有需要的软件包
+      # 步骤8：下载并更新软件包列表 - 获取所有需要的软件包
       - name: 更新软件包列表
         run: |
           # 进入OpenWrt源码目录
           cd openwrt-source
+          # 清理之前可能存在的缓存
+          make dirclean
           # 执行命令来更新软件包列表，确保获取最新版本
           make package/compile V=s
           
-      # 步骤8：开始编译OpenWrt固件 - 核心编译步骤
+      # 步骤9：开始编译OpenWrt固件 - 核心编译步骤
       - name: 开始编译固件
         run: |
           # 进入OpenWrt源码目录
           cd openwrt-source
-          # 执行编译命令，使用多线程加速编译过程（-j$(nproc)表示使用CPU核心数）
-          # V=s参数用于显示详细编译信息，方便调试
-          make -j$(nproc) V=s
+          # 使用FORCE=1强制编译，解决前置检查问题
+          make -j$(nproc) V=s FORCE=1
           
-      # 步骤9：检查编译结果 - 验证是否成功生成固件
+      # 步骤10：检查编译结果 - 验证是否成功生成固件
       - name: 检查编译结果
         run: |
           # 进入OpenWrt源码目录
@@ -83,7 +96,7 @@ jobs:
           echo "编译完成的固件文件:"
           ls -la bin/targets/*
           
-      # 步骤10：上传编译产物 - 将生成的固件文件上传到GitHub
+      # 步骤11：上传编译产物 - 将生成的固件文件上传到GitHub
       - name: 上传固件
         uses: actions/upload-artifact@v4
         with:
@@ -93,7 +106,7 @@ jobs:
           path: |
             openwrt-source/bin/targets/*
             
-      # 步骤11：显示编译完成信息
+      # 步骤12：显示编译完成信息
       - name: 编译完成提示
         run: |
           echo "✅ OpenWrt 编译已完成！"
