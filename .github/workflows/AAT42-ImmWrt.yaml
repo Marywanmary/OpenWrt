@@ -15,7 +15,7 @@ env:
   DIY_SCRIPT: scripts/script.sh # 自定义脚本路径
   CLASH_KERNEL: amd64 # Clash内核架构
   MADS: true # 是否最大化可用磁盘空间
-  UPLOAD_BIN_DIR: false # 是否上传bin目录
+  UPLOAD_BIN_DIR: true # 是否上传bin目录
   FIRMWARE_RELEASE: true # 是否发布固件
   FIRMWARE_TAG: Arthur_Athena # 固件标签
   TZ: Asia/Shanghai # 时区
