@@ -1,5 +1,4 @@
-# name: Build OpenWrt Firmware for IPQ60XX
-name: 0T0
+name: T0T
 
 on:
   workflow_dispatch: # 允许手动触发
@@ -21,29 +20,45 @@ jobs:
       with:
         repository: laipeng668/openwrt-6.x
         ref: k6.12-nss
-        path: openwrt-source
+        # 不需要指定 path，因为默认检出到工作区根目录
 
     - name: Set up Environment
       run: |
-        cd openwrt-source
         # 安装编译所需的依赖 (根据实际情况调整)
         # sudo apt update && sudo apt install -y build-essential libncurses-dev zlib1g-dev gawk gcc-multilib flex git gettext libssl-dev xsltproc rsync python3 unzip
 
     - name: Prepare Config Files
       run: |
-        cd openwrt-source
+        # 确保 configs 目录存在
+        if [ ! -d "configs" ]; then
+          echo "Configs directory not found in the root of the repository."
+          exit 1
+        fi
+
+        # 检查配置文件是否存在
+        if [ ! -f "configs/General.config" ]; then
+          echo "Error: configs/General.config not found."
+          exit 1
+        fi
+
         # 根据矩阵变量确定使用的配置文件
         if [ "${{ matrix.config_type }}" = "full" ]; then
-          CONFIG_FILE="Arthur_Athena_Full.config"
+          CONFIG_FILE="configs/Arthur_Athena_Full.config"
         else
-          CONFIG_FILE="Arthur_Athena_Lite.config"
+          CONFIG_FILE="configs/Arthur_Athena_Lite.config"
+        fi
+
+        # 检查特定配置文件是否存在
+        if [ ! -f "$CONFIG_FILE" ]; then
+          echo "Error: $CONFIG_FILE not found."
+          exit 1
         fi
 
         # 创建临时文件夹存放合并后的配置
         mkdir -p ./configs_temp
 
         # 合并 General.config 和特定配置文件
-        cat ../configs/General.config ../configs/$CONFIG_FILE > ./configs_temp/combined_config_${{ matrix.device }}_${{ matrix.config_type }}
+        cat configs/General.config $CONFIG_FILE > ./configs_temp/combined_config_${{ matrix.device }}_${{ matrix.config_type }}
 
         # 复制合并后的配置文件为 .config
         cp ./configs_temp/combined_config_${{ matrix.device }}_${{ matrix.config_type }} .config
@@ -54,7 +69,6 @@ jobs:
 
     - name: Run Script.sh and Update Feeds
       run: |
-        cd openwrt-source
         echo "Running script.sh for ${{ matrix.device }}-${{ matrix.config_type }}..."
         # 更新 feeds
         echo "Updating feeds..."
@@ -63,7 +77,12 @@ jobs:
 
         # 运行自定义脚本.sh
         echo "Executing custom script.sh..."
-        bash ../scripts/script.sh
+        # 确保脚本存在
+        if [ -f "scripts/script.sh" ]; then
+           bash scripts/script.sh
+        else
+           echo "Warning: scripts/script.sh not found."
+        fi
 
         # 再次更新 feeds (如果 script.sh 中有添加新的 feed)
         echo "Re-updating feeds after script.sh..."
@@ -72,7 +91,6 @@ jobs:
 
     - name: Compile Firmware with Resource Monitoring
       run: |
-        cd openwrt-source
         echo "Starting compilation for ${{ matrix.device }}-${{ matrix.config_type }}..."
         echo "Monitoring system resources every 15 minutes..."
 
@@ -94,7 +112,7 @@ jobs:
         MONITOR_PID=$!
 
         # 开始实际的编译过程
-        # 使用默认的 make 命令进行编译 (不指定 PROFILE，让其使用 .config 中的配置)
+        # 使用默认的 make 命令进行编译
         make -j$(nproc) || {
           # 如果编译失败，停止监控进程
           kill $MONITOR_PID 2>/dev/null || true
@@ -111,7 +129,7 @@ jobs:
       with:
         name: openwrt-${{ matrix.device }}-${{ matrix.config_type }}-firmware
         path: |
-          openwrt-source/bin/targets/ipq60xx/* # 根据实际生成路径调整
+          bin/targets/ipq60xx/* # 使用相对路径
         retention-days: 30 # 保留30天
 
     # --- 新增：创建 Release ---
@@ -119,19 +137,9 @@ jobs:
       uses: softprops/action-gh-release@v2
       if: github.ref == 'refs/heads/k6.12-nss' # 仅在主分支上创建 Release
       with:
-        # 使用默认的 Release 标题和内容格式
-        # 标题将自动生成为 "Release <tag_name>" 或类似
-        # 内容将为空或包含默认描述
         tag_name: ${{ github.sha }} # 使用提交 SHA 作为标签
-        # name: OpenWrt Firmware Build ${{ github.sha }} # 不指定 name，使用默认
-        # body: | # 不指定 body，使用默认
-        #   Build for IPQ60XX devices.
-        #   Device: ${{ matrix.device }}
-        #   Config Type: ${{ matrix.config_type }}
-        #   Built on: ${{ github.event.repository.updated_at }}
-        #   Commit: ${{ github.sha }}
         files: |
-          openwrt-source/bin/targets/ipq60xx/*
+          bin/targets/ipq60xx/*
         draft: false
         prerelease: false
       env:
