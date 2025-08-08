@@ -1,5 +1,5 @@
 # name: Build OpenWrt Firmware for IPQ60XX
-name: IPT-T0
+name: 0T0
 
 on:
   workflow_dispatch: # 允许手动触发
