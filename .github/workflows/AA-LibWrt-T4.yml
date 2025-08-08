@@ -16,7 +16,7 @@ env:
   DIY_SCRIPT: scripts/script.sh
   CLASH_KERNEL: amd64
   MADS: true
-  UPLOAD_BIN_DIR: false
+  UPLOAD_BIN_DIR: true
   FIRMWARE_RELEASE: true
   FIRMWARE_TAG: Arthur_Athena
   TZ: Asia/Shanghai
