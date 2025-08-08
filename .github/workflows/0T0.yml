@@ -1,4 +1,4 @@
-name: T0T
+name: 0T0
 
 on:
   workflow_dispatch: # 允许手动触发
