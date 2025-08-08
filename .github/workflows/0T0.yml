@@ -1,5 +1,5 @@
 # 定义工作流名称 - 当触发时会显示在GitHub Actions界面中
-name: OpenWrt 编译工作流
+name: 0T0
 
 # 定义触发条件 - 使用 workflow_dispatch 触发方式
 on:
