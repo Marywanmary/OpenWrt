@@ -33,23 +33,28 @@ jobs:
           # 更新系统包管理器索引
           sudo apt-get update
           # 安装编译OpenWrt所需的软件包
-          sudo apt-get install -y build-essential libncurses5-dev zlib1g-dev gawk git ccache gettext libssl-dev libelf-dev flex bison bc wget unzip python3
+          sudo apt-get install -y build-essential libncurses5-dev zlib1g-dev gawk git ccache gettext libssl-dev libelf-dev flex bison bc wget unzip python3 libpython3-dev
       
       # 步骤4：清理可能存在的旧文件 - 解决前置检查失败问题
       - name: 清理旧编译文件
         run: |
           # 删除可能存在的旧编译目录
           rm -rf openwrt-source
+          # 清理可能的缓存文件
+          rm -rf ~/.ccache
           
       # 步骤5：克隆OpenWrt源码仓库 - 获取指定分支的源代码
       - name: 克隆OpenWrt源码
         run: |
-          # 克隆指定的OpenWrt仓库，分支为6.12-nss
+          # 克隆指定的OpenWrt仓库，分支为k6.12-nss
           git clone --branch k6.12-nss https://github.com/laipeng668/openwrt-6.x.git openwrt-source
           # 进入源码目录
           cd openwrt-source
           # 确保所有子模块都已初始化
           git submodule update --init --recursive
+          # 检查是否成功克隆
+          echo "克隆完成，当前目录内容:"
+          ls -la
           
       # 步骤6：复制配置文件到正确位置 - 将我们提供的配置文件复制到OpenWrt源码目录
       - name: 复制配置文件
@@ -58,15 +63,25 @@ jobs:
           mkdir -p openwrt-source/.config
           # 将我们的配置文件从仓库根目录复制到OpenWrt源码目录
           cp configs/Arthur_Athena_Full.config openwrt-source/.config/config
-  
+          # 显示配置文件内容
+          echo "配置文件内容:"
+          cat openwrt-source/.config/config
+          
       # 步骤7：进入OpenWrt源码目录并初始化配置
       - name: 初始化OpenWrt配置
         run: |
           # 进入OpenWrt源码目录
           cd openwrt-source
           # 清理之前的配置和构建文件
+          echo "开始清理..."
           make clean
+          make dirclean
+          # 删除staging_dir目录
+          rm -rf staging_dir
+          # 删除build_dir目录
+          rm -rf build_dir
           # 执行OpenWrt的配置脚本，将配置文件应用到源码中
+          echo "开始配置..."
           make defconfig
           
       # 步骤8：下载并更新软件包列表 - 获取所有需要的软件包
@@ -75,8 +90,10 @@ jobs:
           # 进入OpenWrt源码目录
           cd openwrt-source
           # 清理之前可能存在的缓存
+          echo "清理缓存..."
           make dirclean
           # 执行命令来更新软件包列表，确保获取最新版本
+          echo "更新软件包..."
           make package/compile V=s
           
       # 步骤9：开始编译OpenWrt固件 - 核心编译步骤
@@ -84,7 +101,12 @@ jobs:
         run: |
           # 进入OpenWrt源码目录
           cd openwrt-source
+          # 显示当前目录信息
+          echo "当前目录信息:"
+          pwd
+          ls -la
           # 使用FORCE=1强制编译，解决前置检查问题
+          echo "开始编译..."
           make -j$(nproc) V=s FORCE=1
           
       # 步骤10：检查编译结果 - 验证是否成功生成固件
