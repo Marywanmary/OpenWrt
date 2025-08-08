@@ -14,7 +14,7 @@ env:
   MADS: true
   UPLOAD_BIN_DIR: true
   FIRMWARE_RELEASE: true
-  FIRMWARE_TAG: IPQ60XX All Repo
+  FIRMWARE_TAG: IPQ60XX_All_Repo
   TZ: Asia/Shanghai
 jobs:
   Build:
