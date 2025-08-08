@@ -12,30 +12,43 @@ env:
   DIY_SCRIPT: scripts/script.sh
   CLASH_KERNEL: amd64
   MADS: true
-  UPLOAD_BIN_DIR: false
+  UPLOAD_BIN_DIR: true
   FIRMWARE_RELEASE: true
-  FIRMWARE_TAG: Arthur_Athena
+  FIRMWARE_TAG: IPQ60XX
   TZ: Asia/Shanghai
-  
 jobs:
   Build:
     runs-on: ubuntu-22.04
     strategy:
       matrix:
         include:
+          # ImmortalWrt 仓库
+          - repo_url: https://github.com/laipeng668/immortalwrt.git
+            repo_branch: master
+            repo_name: immwrt
+            config_file: configs/Arthur_Athena_Lite.config
+          - repo_url: https://github.com/laipeng668/immortalwrt.git
+            repo_branch: master
+            repo_name: immwrt
+            config_file: configs/Arthur_Athena_Full.config
+          # OpenWrt 仓库
           - repo_url: https://github.com/laipeng668/openwrt.git
             repo_branch: master
+            repo_name: openwrt
             config_file: configs/Arthur_Athena_Lite.config
           - repo_url: https://github.com/laipeng668/openwrt.git
             repo_branch: master
+            repo_name: openwrt
             config_file: configs/Arthur_Athena_Full.config
+          # LibWrt 仓库
           - repo_url: https://github.com/laipeng668/openwrt-6.x.git
-            repo_branch: master
+            repo_branch: k6.12-nss
+            repo_name: libwrt
             config_file: configs/Arthur_Athena_Lite.config
           - repo_url: https://github.com/laipeng668/openwrt-6.x.git
             repo_branch: k6.12-nss
+            repo_name: libwrt
             config_file: configs/Arthur_Athena_Full.config
-            
     steps:
     - name: Check Server Performance(检查服务器性能)
       run: |
@@ -92,14 +105,23 @@ jobs:
         CONFIG_FILE="${{ matrix.config_file }}"
         REPO_URL="${{ matrix.repo_url }}"
         REPO_BRANCH="${{ matrix.repo_branch }}"
+        REPO_NAME="${{ matrix.repo_name }}"
         echo "CONFIG_FILE=$CONFIG_FILE" >> $GITHUB_ENV
         echo "REPO_URL=$REPO_URL" >> $GITHUB_ENV
         echo "REPO_BRANCH=$REPO_BRANCH" >> $GITHUB_ENV
+        echo "REPO_NAME=$REPO_NAME" >> $GITHUB_ENV
         cp $CONFIG_FILE $OPENWRT_PATH/.config
         cd $OPENWRT_PATH
         make defconfig > /dev/null 2>&1
         SOURCE_REPO="$(echo $REPO_URL | awk -F '/' '{print $(NF)}')"
         echo "SOURCE_REPO=$SOURCE_REPO" >> $GITHUB_ENV
+        # 为 openwrt-6.x 设置显示名称
+        if [[ "$SOURCE_REPO" == "openwrt-6.x" ]]; then
+          DISPLAY_REPO_NAME="libwrt"
+        else
+          DISPLAY_REPO_NAME="$REPO_NAME"
+        fi
+        echo "DISPLAY_REPO_NAME=$DISPLAY_REPO_NAME" >> $GITHUB_ENV
         DEVICE_TARGET=$(cat .config | grep CONFIG_TARGET_BOARD | awk -F '"' '{print $2}')
         echo "DEVICE_TARGET=$DEVICE_TARGET" >> $GITHUB_ENV
         DEVICE_SUBTARGET=$(cat .config | grep CONFIG_TARGET_SUBTARGET | awk -F '"' '{print $2}')
@@ -114,8 +136,8 @@ jobs:
     - name: Cache Toolchain(缓存工具链)
       uses: actions/cache@main
       with:
-        key: ${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.HASH }} ${{ env.CACHE_DATE }}
-        restore-keys: ${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-
+        key: ${{ env.REPO_NAME }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.HASH }} ${{ env.CACHE_DATE }}
+        restore-keys: ${{ env.REPO_NAME }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-
         path: |
           ${{ env.OPENWRT_PATH }}/.ccache
           ${{ env.OPENWRT_PATH }}/staging_dir
@@ -193,7 +215,7 @@ jobs:
       if: steps.compile.outputs.status == 'success' && env.UPLOAD_BIN_DIR == 'true'
       uses: actions/upload-artifact@main
       with:
-        name: ${{ env.SOURCE_REPO }}-bin-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.FILE_DATE }}-${{ env.CONFIG_FILENAME_SHORT }}
+        name: ${{ env.REPO_NAME }}-${{ env.CONFIG_FILENAME_SHORT }}-bin-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.FILE_DATE }}
         path: ${{ env.OPENWRT_PATH }}/bin
     - name: Organize Files(整理文件)
       if: steps.compile.outputs.status == 'success'
@@ -202,32 +224,46 @@ jobs:
         # Use the short config filename for renaming
         CONFIG_FILENAME_SHORT="${{ env.CONFIG_FILENAME_SHORT }}"
         echo "CONFIG_FILENAME_SHORT=$CONFIG_FILENAME_SHORT" >> $GITHUB_ENV
-        # Create a unique firmware name based on config file
-        FIRMWARE_NAME="Arthur.Athena.${CONFIG_FILENAME_SHORT%.config}"
+        # Create a unique firmware name based on config file and repo
+        FIRMWARE_NAME="IPQ60XX.${CONFIG_FILENAME_SHORT%.config}.${{ env.REPO_NAME }}"
+        # 如果是 libwrt 仓库，使用 Libwrt 作为前缀（但文件名中使用简称）
+        if [[ "${{ env.REPO_NAME }}" == "libwrt" ]]; then
+          FIRMWARE_NAME="IPQ60XX.Libwrt.${CONFIG_FILENAME_SHORT%.config}"
+        fi
         cp $OPENWRT_PATH/.config "$FIRMWARE_NAME.config"
         mv config.buildinfo "$FIRMWARE_NAME.config.buildinfo"
-        mv immortalwrt-qualcommax-ipq60xx.manifest immortalwrt-qualcommax-ipq60xx-"$FIRMWARE_NAME".manifest
-        mv -f $OPENWRT_PATH/bin/packages/*/*/*.ipk packages
-        tar -zcf "$FIRMWARE_NAME.Packages.tar.gz" packages
-        rm -rf packages feeds.buildinfo version.buildinfo sha256sums profiles.json
+        # 修正 manifest 文件名，使用统一格式并增加存在性检查
+        if [ -f "immortalwrt-qualcommax-ipq60xx.manifest" ]; then
+          mv immortalwrt-qualcommax-ipq60xx.manifest immortalwrt-qualcommax-ipq60xx-"$FIRMWARE_NAME".manifest
+        fi
+        # 移动 ipk 包并创建 tar 包
+        if [ -d "$OPENWRT_PATH/bin/packages" ]; then
+          mv -f $OPENWRT_PATH/bin/packages/*/*/*.ipk packages 2>/dev/null || true
+          if [ -d "packages" ]; then
+            tar -zcf "$FIRMWARE_NAME.Packages.tar.gz" packages
+            rm -rf packages
+          fi
+        fi
+        # 清理临时文件
+        rm -rf feeds.buildinfo version.buildinfo sha256sums profiles.json
         echo "FIRMWARE_PATH=$PWD" >> $GITHUB_ENV
     - name: Upload Firmware To Artifact(将固件上传到Artifact)
       if: steps.compile.outputs.status == 'success' && env.FIRMWARE_RELEASE != 'true'
       uses: actions/upload-artifact@main
       with:
-        name: ${{ env.SOURCE_REPO }}-firmware-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.FILE_DATE }}-${{ env.CONFIG_FILENAME_SHORT }}
+        name: ${{ env.REPO_NAME }}-${{ env.CONFIG_FILENAME_SHORT }}-firmware-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}-${{ env.FILE_DATE }}
         path: ${{ env.FIRMWARE_PATH }}
     - name: Upload Firmware To Release(发布固件)
       if: steps.compile.outputs.status == 'success' && env.FIRMWARE_RELEASE == 'true'
       uses: ncipollo/release-action@main
       with:
-        name: ${{ env.DATE }} for ${{ env.FIRMWARE_TAG }}_${{ env.CONFIG_FILENAME_SHORT }}_${{ env.SOURCE_REPO }}_${{ env.REPO_BRANCH }}
+        name: ${{ env.DATE }} for ${{ env.FIRMWARE_TAG }}_${{ env.CONFIG_FILENAME_SHORT }}_${{ env.DISPLAY_REPO_NAME }}_${{ env.REPO_BRANCH }}
         allowUpdates: true
-        tag: ${{ env.FIRMWARE_TAG }}_${{ env.CONFIG_FILENAME_SHORT }}_${{ env.SOURCE_REPO }}_${{ env.REPO_BRANCH }}
+        tag: ${{ env.FIRMWARE_TAG }}_${{ env.CONFIG_FILENAME_SHORT }}_${{ env.DISPLAY_REPO_NAME }}_${{ env.REPO_BRANCH }}
         token: ${{ secrets.GITHUB_TOKEN }}
         artifacts: ${{ env.FIRMWARE_PATH }}/*
         body: |
-          **This is OpenWrt Firmware for ${{ env.FIRMWARE_TAG }}_${{ env.CONFIG_FILENAME_SHORT }}_${{ env.SOURCE_REPO }}_${{ env.REPO_BRANCH }}**
+          **This is OpenWrt Firmware for ${{ env.FIRMWARE_TAG }}_${{ env.CONFIG_FILENAME_SHORT }}_${{ env.DISPLAY_REPO_NAME }}_${{ env.REPO_BRANCH }}**
           ### 📒 固件信息
           - 这是基于 ${{ env.CONFIG_FILENAME_SHORT }} 配置编译的固件
           - 该固件在ImmortalWrt的基础上，添加了额外的软件包，并添加了若干工具，具体详见对应机型的config
@@ -247,7 +283,7 @@ jobs:
     - name: Delete Old Cache(删除旧缓存)
       run: |
         # 获取缓存列表并删除
-        gh cache list --key ${{ env.SOURCE_REPO }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}- --json key --jq '.[] | .key' | while read -r key; do
+        gh cache list --key ${{ env.REPO_NAME }}-${{ env.REPO_BRANCH }}-${{ env.DEVICE_TARGET }}-${{ env.DEVICE_SUBTARGET }}- --json key --jq '.[] | .key' | while read -r key; do
           gh cache delete "$key"
         done
         # 输出缓存状态
