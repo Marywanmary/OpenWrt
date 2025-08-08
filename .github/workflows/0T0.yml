@@ -39,7 +39,7 @@ jobs:
       - name: 克隆OpenWrt源码
         run: |
           # 克隆指定的OpenWrt仓库，分支为6.12-nss
-          git clone --branch 6.12-nss https://github.com/laipeng668/openwrt-6.x.git openwrt-source
+          git clone --branch k6.12-nss https://github.com/laipeng668/openwrt-6.x.git openwrt-source
           
       # 步骤5：复制配置文件到正确位置 - 将我们提供的配置文件复制到OpenWrt源码目录
       - name: 复制配置文件
