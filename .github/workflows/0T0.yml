@@ -1,146 +1,109 @@
-name: 0T0
+# 定义工作流名称 - 当触发时会显示在GitHub Actions界面中
+name: OpenWrt 编译工作流
 
-on:
-  workflow_dispatch: # 允许手动触发
-  schedule:
-    - cron: '0 2 * * 1' # 每周一凌晨2点自动触发 (UTC)
+# 定义触发条件 - 这里设置为空，表示不会自动触发，需要手动触发
+on: {}
 
+# 定义工作流的权限设置 - 给予读写权限以进行构建
+permissions:
+  contents: read
+
+# 定义工作流中的任务集合 - 称为 jobs
 jobs:
+  # 定义一个名为 build 的任务
   build:
+    # 指定运行环境 - 使用 Ubuntu 最新版本
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        # 定义需要编译的配置组合
-        config_type: [full, lite]
-        device: [re-ss-01, re-cs-02]
-
+    
+    # 定义该任务需要执行的步骤集合
     steps:
-    - name: Checkout Source Code
-      uses: actions/checkout@v4
-      with:
-        repository: laipeng668/openwrt-6.x
-        ref: k6.12-nss
-        # 不需要指定 path，因为默认检出到工作区根目录
-
-    - name: Set up Environment
-      run: |
-        # 安装编译所需的依赖 (根据实际情况调整)
-        # sudo apt update && sudo apt install -y build-essential libncurses-dev zlib1g-dev gawk gcc-multilib flex git gettext libssl-dev xsltproc rsync python3 unzip
-
-    - name: Prepare Config Files
-      run: |
-        # 确保 configs 目录存在
-        if [ ! -d "configs" ]; then
-          echo "Configs directory not found in the root of the repository."
-          exit 1
-        fi
-
-        # 检查配置文件是否存在
-        if [ ! -f "configs/General.config" ]; then
-          echo "Error: configs/General.config not found."
-          exit 1
-        fi
-
-        # 根据矩阵变量确定使用的配置文件
-        if [ "${{ matrix.config_type }}" = "full" ]; then
-          CONFIG_FILE="configs/Arthur_Athena_Full.config"
-        else
-          CONFIG_FILE="configs/Arthur_Athena_Lite.config"
-        fi
-
-        # 检查特定配置文件是否存在
-        if [ ! -f "$CONFIG_FILE" ]; then
-          echo "Error: $CONFIG_FILE not found."
-          exit 1
-        fi
-
-        # 创建临时文件夹存放合并后的配置
-        mkdir -p ./configs_temp
-
-        # 合并 General.config 和特定配置文件
-        cat configs/General.config $CONFIG_FILE > ./configs_temp/combined_config_${{ matrix.device }}_${{ matrix.config_type }}
-
-        # 复制合并后的配置文件为 .config
-        cp ./configs_temp/combined_config_${{ matrix.device }}_${{ matrix.config_type }} .config
-
-        # 显示合并后的配置内容 (可选，用于调试)
-        echo "=== Combined Config for ${{ matrix.device }}-${{ matrix.config_type }} ==="
-        cat .config
-
-    - name: Run Script.sh and Update Feeds
-      run: |
-        echo "Running script.sh for ${{ matrix.device }}-${{ matrix.config_type }}..."
-        # 更新 feeds
-        echo "Updating feeds..."
-        scripts/feeds update -a
-        scripts/feeds install -a
-
-        # 运行自定义脚本.sh
-        echo "Executing custom script.sh..."
-        # 确保脚本存在
-        if [ -f "scripts/script.sh" ]; then
-           bash scripts/script.sh
-        else
-           echo "Warning: scripts/script.sh not found."
-        fi
-
-        # 再次更新 feeds (如果 script.sh 中有添加新的 feed)
-        echo "Re-updating feeds after script.sh..."
-        scripts/feeds update -a
-        scripts/feeds install -a
-
-    - name: Compile Firmware with Resource Monitoring
-      run: |
-        echo "Starting compilation for ${{ matrix.device }}-${{ matrix.config_type }}..."
-        echo "Monitoring system resources every 15 minutes..."
-
-        # 启动后台资源监控进程
-        (
-          while true; do
-            echo "=== System Resource Usage at $(date) ==="
-            free -h
-            echo "Disk Usage:"
-            df -h
-            echo "CPU Load Average:"
-            uptime
-            echo "----------------------------------------"
-            sleep 900 # 等待 15 分钟 (900 秒)
-          done
-        ) &
-
-        # 保存后台进程 ID
-        MONITOR_PID=$!
-
-        # 开始实际的编译过程
-        # 使用默认的 make 命令进行编译
-        make -j$(nproc) || {
-          # 如果编译失败，停止监控进程
-          kill $MONITOR_PID 2>/dev/null || true
-          exit 1
-        }
-
-        # 编译完成后，停止监控进程
-        kill $MONITOR_PID 2>/dev/null || true
-
-        echo "Compilation completed for ${{ matrix.device }}-${{ matrix.config_type }}."
-
-    - name: Upload Artifacts
-      uses: actions/upload-artifact@v4
-      with:
-        name: openwrt-${{ matrix.device }}-${{ matrix.config_type }}-firmware
-        path: |
-          bin/targets/ipq60xx/* # 使用相对路径
-        retention-days: 30 # 保留30天
-
-    # --- 新增：创建 Release ---
-    - name: Create Release
-      uses: softprops/action-gh-release@v2
-      if: github.ref == 'refs/heads/k6.12-nss' # 仅在主分支上创建 Release
-      with:
-        tag_name: ${{ github.sha }} # 使用提交 SHA 作为标签
-        files: |
-          bin/targets/ipq60xx/*
-        draft: false
-        prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # 步骤1：检出代码 - 将仓库代码下载到工作环境中
+      - name: 检出源代码
+        uses: actions/checkout@v4
+        
+      # 步骤2：设置工作目录 - 将当前工作目录切换到仓库根目录
+      - name: 设置工作目录
+        run: |
+          cd ${{ github.workspace }}
+          
+      # 步骤3：安装编译所需依赖包 - 为后续编译准备环境
+      - name: 安装编译依赖
+        run: |
+          # 更新系统包管理器索引
+          sudo apt-get update
+          # 安装编译OpenWrt所需的软件包
+          sudo apt-get install -y build-essential libncurses5-dev zlib1g-dev gawk git ccache gettext libssl-dev libelf-dev flex bison bc wget unzip
+      
+      # 步骤4：克隆OpenWrt源码仓库 - 获取指定分支的源代码
+      - name: 克隆OpenWrt源码
+        run: |
+          # 克隆指定的OpenWrt仓库，分支为6.12-nss
+          git clone --branch 6.12-nss https://github.com/laipeng668/openwrt-6.x.git openwrt-source
+          
+      # 步骤5：复制配置文件到正确位置 - 将我们提供的配置文件复制到OpenWrt源码目录
+      - name: 复制配置文件
+        run: |
+          # 创建OpenWrt源码目录下的config目录（如果不存在）
+          mkdir -p openwrt-source/.config
+          # 将我们的配置文件从仓库根目录复制到OpenWrt源码目录
+          cp configs/Arthur_Athena_Full.config openwrt-source/.config/config
+  
+      # 步骤6：进入OpenWrt源码目录并初始化配置
+      - name: 初始化OpenWrt配置
+        run: |
+          # 进入OpenWrt源码目录
+          cd openwrt-source
+          # 执行OpenWrt的配置脚本，将配置文件应用到源码中
+          make defconfig
+          
+      # 步骤7：下载并更新软件包列表 - 获取所有需要的软件包
+      - name: 更新软件包列表
+        run: |
+          # 进入OpenWrt源码目录
+          cd openwrt-source
+          # 执行命令来更新软件包列表，确保获取最新版本
+          make package/compile V=s
+          
+      # 步骤8：开始编译OpenWrt固件 - 核心编译步骤
+      - name: 开始编译固件
+        run: |
+          # 进入OpenWrt源码目录
+          cd openwrt-source
+          # 执行编译命令，使用多线程加速编译过程（-j$(nproc)表示使用CPU核心数）
+          # V=s参数用于显示详细编译信息，方便调试
+          make -j$(nproc) V=s
+          
+      # 步骤9：检查编译结果 - 验证是否成功生成固件
+      - name: 检查编译结果
+        run: |
+          # 进入OpenWrt源码目录
+          cd openwrt-source
+          # 查找生成的固件文件，通常位于bin/targets目录下
+          echo "编译完成的固件文件:"
+          ls -la bin/targets/*
+          
+      # 步骤10：上传编译产物 - 将生成的固件文件上传到GitHub（仅用于本地自用）
+      - name: 上传固件
+        uses: actions/upload-artifact@v4
+        with:
+          # 设置上传的文件名前缀
+          name: OpenWrt-Firmware
+          # 指定要上传的文件路径模式
+          path: |
+            openwrt-source/bin/targets/*
+            
+      # 步骤11：创建发布版本 - 由于是自用，这里不创建实际的发布版本
+      - name: 清理编译缓存
+        if: always()
+        run: |
+          # 进入OpenWrt源码目录
+          cd openwrt-source
+          # 清理编译缓存，释放空间
+          make clean
+          
+      # 步骤12：显示编译完成信息
+      - name: 编译完成提示
+        run: |
+          echo "✅ OpenWrt 编译已完成！"
+          echo "🔧 固件文件已保存在 openwrt-source/bin/targets/ 目录下"
+          echo "📦 可以在 GitHub Actions 的 Artifacts 中下载固件文件"
