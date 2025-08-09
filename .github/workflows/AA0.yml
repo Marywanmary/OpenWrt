@@ -1,0 +1,197 @@
+# 文件名: .github/workflows/build.yml
+
+#name: Compile OpenWrt Firmware for IPQ60XX (ARM64)
+name: AA0
+
+on:
+  # 手动触发
+  workflow_dispatch:
+  # 每周予权力北京时间0点（UTC周一16点）触发
+  schedule:
+    - cron: '0 16 * * 4'
+
+jobs:
+  build_all_configs:
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        # 定义所有源码仓库、设备和配置的组合
+        # 注意: GitHub Actions 的 matrix 必须是对象数组
+        repo: [{ value: LibWrt }, { value: OpenWrt }, { value: ImmWrt }]
+        device: [{ value: Aruthur }, { value: Athena }]
+        config: [{ value: Lite }, { value: Full }]
+
+    steps:
+      # --- 1. 获取源码仓库信息 ---
+      - name: Get Repo Info
+        id: get_repo_info
+        run: |
+          echo "REPO_URL=$(if [ '${{ matrix.repo.value }}' = 'LibWrt' ]; then echo 'https://github.com/laipeng668/openwrt-6.x.git'; elif [ '${{ matrix.repo.value }}' = 'OpenWrt' ]; then echo 'https://github.com/laipeng668/openwrt.git'; else echo 'https://github.com/laipeng668/immortalwrt.git'; fi)" >> $GITHUB_ENV
+          echo "REPO_BRANCH=$(if [ '${{ matrix.repo.value }}' = 'LibWrt' ]; then echo 'k6.12-nss'; else echo 'master'; fi)" >> $GITHUB_ENV
+          echo "REPO_SHORT_NAME=${{ matrix.repo.value }}" >> $GITHUB_ENV
+          echo "DEVICE_SHORT_NAME=${{ matrix.device.value }}" >> $GITHUB_ENV
+          echo "CONFIG_NAME=${{ matrix.config.value }}" >> $GITHUB_ENV
+          echo "BUILD_TIME=$(date +'%Y-%m-%d_%H-%M-%S')" >> $GITHUB_ENV
+          echo "ARTIFACT_NAME=${{ env.BUILD_TIME }}_${{ env.REPO_SHORT_NAME }}_${{ env.DEVICE_SHORT_NAME }}_${{ env.CONFIG_NAME }}" >> $GITHUB_ENV
+          echo "RELEASE_TITLE=${{ env.BUILD_TIME }}_${{ env.REPO_SHORT_NAME }}_${{ env.DEVICE_SHORT_NAME }}_${{ env.CONFIG_NAME }}" >> $GITHUB_ENV
+          # 设置时区为北京时间 (UTC+8)
+          echo "TZ=Asia/Shanghai" >> $GITHUB_ENV
+
+      # --- 2. 克隆源码 ---
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.REPO_URL }}
+          ref: ${{ env.REPO_BRANCH }}
+          path: openwrt-source
+
+      # --- 3. 最大化可用磁盘空间 (可选) ---
+      # 注意: 这个步骤只有在环境变量 MADS 设置为 'true' 时才会执行
+      # 如果您想总是执行，可以移除 'if: env.MADS == 'true'' 条件
+      - name: Maximize Available Disk Space (最大化可用磁盘空间)
+        if: env.MADS == 'true' # 仅当 MADS 为 true 时执行
+        uses: AdityaGarg8/remove-unwanted-software@master
+        with:
+          remove-dotnet: "true"
+          remove-android: "true"
+          remove-haskell: "true"
+          remove-codeql: "true"
+          remove-docker-images: "true"
+          remove-large-packages: "true"
+          remove-cached-tools: "true"
+          remove-swapfile: "true"
+
+      # --- 4. 初始化环境 ---
+      - name: Initialization Environment (初始化环境)
+        env:
+          DEBIAN_FRONTEND: noninteractive # 非交互模式安装软件包
+        run: |
+          sudo -E apt-get -y update
+          sudo -E apt-get -y install $(curl -fsSL is.gd/depends_ubuntu_2204)
+          sudo -E systemctl daemon-reload
+          sudo -E apt-get -y autoremove --purge
+          sudo -E apt-get -y clean
+          sudo timedatectl set-timezone "$TZ" # 设置时区
+
+      # --- 5. 设置工作目录和变量 ---
+      - name: Setup Working Directory and Variables
+        run: |
+          cd openwrt-source
+          echo "OPENWRT_PATH=$(pwd)" >> $GITHUB_ENV
+          echo "GENERAL_CONFIG_FILE=$OPENWRT_PATH/configs/General.config" >> $GITHUB_ENV
+          echo "CONFIG_FILE=$OPENWRT_PATH/configs/${{ env.DEVICE_SHORT_NAME }}_${{ env.CONFIG_NAME }}.config" >> $GITHUB_ENV
+
+      # --- 6. 合并配置文件 ---
+      # 注意: 请确认源码仓库中有 configs/General.config 和 configs/{DEVICE}_{CONFIG}.config
+      # 这里使用 shell 脚本来合并配置文件
+      - name: Merge Config Files (合并配置文件)
+        run: |
+          cd openwrt-source
+          echo "正在合并配置文件..."
+          if [ ! -f "$GENERAL_CONFIG_FILE" ]; then
+            echo "错误: 找不到通用配置文件 $GENERAL_CONFIG_FILE"
+            exit 1
+          fi
+          if [ ! -f "$CONFIG_FILE" ]; then
+            echo "错误: 找不到设备配置文件 $CONFIG_FILE"
+            exit 1
+          fi
+          # 合并配置文件
+          cat "$GENERAL_CONFIG_FILE" "$CONFIG_FILE" > .config
+          echo "配置文件已合并到 .config"
+
+      # --- 7. 启动资源监控 ---
+      # 启动后台资源监控（15分钟间隔）
+      - name: Start Resource Monitoring (启动资源监控)
+        run: |
+          cd openwrt-source
+          {
+          while true; do
+          sleep 900  # 15分钟间隔
+          echo "====================== 编译期间系统占用监控 ======================"
+          echo "🕒 监控时间: $(date)"
+          echo "💾 磁盘使用情况:"
+          df -hT | grep -E '^(Filesystem|/dev/)'
+          echo "📦 内存使用情况:"
+          free -h
+          echo "⚡ CPU 负载:"
+          uptime
+          echo "=========================================================="
+          echo "## 🔄 编译期间系统占用监控 （频率 15分钟）"
+          echo "- 🕐 当前时间: $(date)"
+          #echo "- 💾 磁盘/dev/root使用率: $(df -h / | tail -1 | awk '{print $5}')"
+          echo "- 💾 磁盘/dev/sda1使用率: $(df -h /dev/sda1 | tail -1 | awk '{print $5}')"
+          echo "- 📦 内存使用率: $(free | grep Mem | awk '{printf(\"%.1f%%\", \$3/\$2 * 100.0)}')"
+          echo ""
+          done
+          } &
+          # 记录监控进程ID以便后续关闭
+          echo "MONITOR_PID=\$!" > monitor_pid.txt
+
+      # --- 8. 编译固件 ---
+      # 注意: 请根据您的实际源码仓库结构和编译命令进行调整
+      # 例如，可能需要运行 ./scripts/feeds update -a && ./scripts/feeds install -a
+      # 然后运行 make defconfig 或 make menuconfig
+      # 最后运行 make -j$(nproc) V=s
+      - name: Build Firmware (编译固件)
+        run: |
+          cd openwrt-source
+          echo "开始编译固件..."
+          # 示例命令，需要根据实际情况调整
+          # ./scripts/feeds update -a
+          # ./scripts/feeds install -a
+          # make defconfig # 或者 make menuconfig
+          # make -j$(nproc) V=s
+          echo "编译完成。请替换此处的编译命令。"
+
+      # --- 9. 关闭资源监控 ---
+      - name: Stop Resource Monitoring (关闭资源监控)
+        run: |
+          cd openwrt-source
+          if [ -f monitor_pid.txt ]; then
+            MONITOR_PID=$(cat monitor_pid.txt)
+            kill $MONITOR_PID 2>/dev/null || true
+            rm monitor_pid.txt
+          fi
+
+      # --- 10. 上传 Artifact ---
+      # 注意: 请根据实际的固件输出路径调整 'path'
+      # 通常输出在 bin/targets/.../ 下
+      - name: Upload Artifact (上传编译产物)
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: openwrt-source/bin/targets/*/*/*.img.gz # 请根据实际路径调整
+          retention-days: 7 # 保留7天
+
+      # --- 11. 创建 Release ---
+      # 注意: 请确保在仓库设置中启用了 Releases 功能
+      # 并且可能需要一个 GitHub Personal Access Token (PAT) 来创建 Release
+      # 这里使用了 action-gh-release 插件，它通常需要 PAT
+      # 请在仓库 Settings -> Secrets 中添加名为 GITHUB_TOKEN 的 secret (通常已存在)
+      # 或者使用 personal access token (需要配置 secrets)
+      # 如果无法使用 action-gh-release，可以考虑使用其他方式
+      - name: Create Release (创建 Release)
+        uses: softprops/action-gh-release@v1
+        if: github.event_name == 'schedule' # 仅在定时触发时创建 Release
+        with:
+          tag_name: ${{ env.ARTIFACT_NAME }}
+          name: ${{ env.RELEASE_TITLE }}
+          body: |
+            ### 📒 固件信息
+            - 该固件在${{ env.REPO_SHORT_NAME }}的基础上，添加了额外的软件包，并添加了若干工具，具体详见对应机型的config
+            - ⚽ 固件源码: https://github.com/laipeng668/immortalwrt.git
+            - ⚽ 固件源码: https://github.com/laipeng668/openwrt.git
+            - ⚽ 固件源码: https://github.com/laipeng668/openwrt-6.x.git
+            - 🌐 默认地址: **192.168.111.1**
+            - 🔑 默认密码: none
+            - 🚀 WiFi名称: **Star**
+            - 🔑 WiFi密码: 12345678
+            ### 📒 固件版本
+            - 固件内核版本：**${{ env.VERSION_KERNEL }}**
+            #- 固件编译前最后一次➦[主源码](${{ env.REPO_URL }})更新记录
+            - ${{ env.VERSION_INFO }}
+          files: openwrt-source/bin/targets/*/*/*.img.gz # 请根据实际路径调整
+          draft: false
+          prerelease: false
