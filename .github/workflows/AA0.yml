@@ -64,7 +64,8 @@ jobs:
         run: |
           cd openwrt-source
           echo "正在获取版本信息..."
-          # 尝试从 kernel-version.mk 获取内核版本 (常见于 OpenWrt)
+
+          # 方法 1: 尝试从 kernel-version.mk 获取内核版本 (常见于 OpenWrt)
           if [ -f "include/kernel-version.mk" ]; then
             KERNEL_VERSION_LINE=$(grep -E "^LINUX_VERSION" "include/kernel-version.mk" | head -1)
             if [ -n "$KERNEL_VERSION_LINE" ]; then
@@ -73,7 +74,7 @@ jobs:
             fi
           fi
 
-          # 如果上面没找到，尝试从 target/linux/ipq60xx/Makefile 获取 (针对 IPQ60XX)
+          # 方法 2: 如果上面没找到，尝试从 target/linux/ipq60xx/Makefile 获取 (针对 IPQ60XX)
           if [ -z "${{ env.VERSION_KERNEL }}" ] && [ -f "target/linux/ipq60xx/Makefile" ]; then
             KERNEL_VERSION_LINE=$(grep -E "LINUX_VERSION" "target/linux/ipq60xx/Makefile" | head -1)
             if [ -n "$KERNEL_VERSION_LINE" ]; then
@@ -82,7 +83,7 @@ jobs:
             fi
           fi
 
-          # 如果还是没找到，尝试从 .config 获取 (某些情况下)
+          # 方法 3: 如果还是没找到，尝试从 .config 获取 (某些情况下)
           if [ -z "${{ env.VERSION_KERNEL }}" ] && [ -f ".config" ]; then
             KERNEL_VERSION_LINE=$(grep -E "^CONFIG_LINUX_KERNEL_VERSION" ".config" | head -1)
             if [ -n "$KERNEL_VERSION_LINE" ]; then
@@ -96,12 +97,16 @@ jobs:
             echo "VERSION_KERNEL=Unknown" >> $GITHUB_ENV
           fi
 
-          # 获取 git 提交信息作为版本信息
-          # 注意: 这里我们获取最近一次提交的哈希和日期
+          # 获取 git 提交信息作为版本信息 (使用更安全的方法)
+          # 获取最近一次提交的哈希
           COMMIT_HASH=$(git rev-parse --short HEAD)
+          # 获取提交日期 (格式化)
           COMMIT_DATE=$(git log -1 --format=%cd --date=format:'%Y-%m-%d %H:%M:%S')
-          COMMIT_MESSAGE=$(git log -1 --pretty=%B | head -c 100) # 限制长度
-          echo "VERSION_INFO=Commit: $COMMIT_HASH ($COMMIT_DATE) - $COMMIT_MESSAGE..." >> $GITHUB_ENV
+          # 获取提交信息摘要 (只取第一行，避免多行和特殊字符)
+          COMMIT_MESSAGE=$(git log -1 --pretty=%B | head -n 1 | cut -c 1-100)
+          # 清理特殊字符
+          COMMIT_MESSAGE_CLEANED=$(echo "$COMMIT_MESSAGE" | sed 's/[^a-zA-Z0-9 ._-]/_/g')
+          echo "VERSION_INFO=Commit: $COMMIT_HASH ($COMMIT_DATE) - $COMMIT_MESSAGE_CLEANED" >> $GITHUB_ENV
 
           echo "内核版本 (VERSION_KERNEL): ${{ env.VERSION_KERNEL }}"
           echo "版本信息 (VERSION_INFO): ${{ env.VERSION_INFO }}"
