@@ -223,4 +223,39 @@ jobs:
       # 注意: 请根据实际的固件输出路径调整 'path'
       # 通常输出在 bin/targets/.../ 下
       - name: Upload Artifact (上传编译产物)
-        uses: actions/upload-artifact
+        uses: actions/upload-artifact@v4 # 确保使用了正确的 Action 版本
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: openwrt-source/bin/targets/*/*/*.img.gz # 请根据实际路径调整
+          retention-days: 7 # 保留7天
+
+      # --- 12. 创建 Release ---
+      # 注意: 请确保在仓库设置中启用了 Releases 功能
+      # 并且可能需要一个 GitHub Personal Access Token (PAT) 来创建 Release
+      # 这里使用了 action-gh-release 插件，它通常需要 PAT
+      # 请在仓库 Settings -> Secrets 中添加名为 GITHUB_TOKEN 的 secret (通常已存在)
+      # 或者使用 personal access token (需要配置 secrets)
+      # 如果无法使用 action-gh-release，可以考虑使用其他方式
+      - name: Create Release (创建 Release)
+        uses: softprops/action-gh-release@v1
+        if: github.event_name == 'schedule' # 仅在定时触发时创建 Release
+        with:
+          tag_name: ${{ env.ARTIFACT_NAME }}
+          name: ${{ env.RELEASE_TITLE }}
+          body: |
+            ### 📒 固件信息
+            - 该固件在${{ env.REPO_SHORT_NAME }}的基础上，添加了额外的软件包，并添加了若干工具，具体详见对应机型的config
+            - ⚽ 固件源码: https://github.com/laipeng668/immortalwrt.git
+            - ⚽ 固件源码: https://github.com/laipeng668/openwrt.git
+            - ⚽ 固件源码: https://github.com/laipeng668/openwrt-6.x.git
+            - 🌐 默认地址: **192.168.111.1**
+            - 🔑 默认密码: none
+            - 🚀 WiFi名称: **Star**
+            - 🔑 WiFi密码: 12345678
+            ### 📒 固件版本
+            - 固件内核版本：**${{ env.VERSION_KERNEL }}**
+            #- 固件编译前最后一次➦[主源码](${{ env.REPO_URL }})更新记录
+            - ${{ env.VERSION_INFO }}
+          files: openwrt-source/bin/targets/*/*/*.img.gz # 请根据实际路径调整
+          draft: false
+          prerelease: false
