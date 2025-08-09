@@ -15,9 +15,10 @@ jobs:
 
     strategy:
       matrix:
-        # 定义所有源码仓库、设备和配置的组合
+        # 仅保留 LibWrt 仓库，减少错误来源
+        # 定义所有设备和配置的组合
         # 注意: GitHub Actions 的 matrix 必须是对象数组
-        repo: [{ value: LibWrt }, { value: OpenWrt }, { value: ImmWrt }]
+        repo: [{ value: LibWrt }] # 只保留 LibWrt
         device: [{ value: Aruthur }, { value: Athena }]
         config: [{ value: Lite }, { value: Full }]
 
@@ -31,14 +32,6 @@ jobs:
             echo "REPO_OWNER=laipeng668" >> $GITHUB_ENV
             echo "REPO_NAME=openwrt-6.x" >> $GITHUB_ENV
             echo "REPO_BRANCH=k6.12-nss" >> $GITHUB_ENV
-          elif [ '${{ matrix.repo.value }}' = 'OpenWrt' ]; then
-            echo "REPO_OWNER=laipeng668" >> $GITHUB_ENV
-            echo "REPO_NAME=openwrt" >> $GITHUB_ENV
-            echo "REPO_BRANCH=master" >> $GITHUB_ENV
-          else # ImmWrt
-            echo "REPO_OWNER=laipeng668" >> $GITHUB_ENV
-            echo "REPO_NAME=immortalwrt" >> $GITHUB_ENV
-            echo "REPO_BRANCH=master" >> $GITHUB_ENV
           fi
           echo "REPO_SHORT_NAME=${{ matrix.repo.value }}" >> $GITHUB_ENV
           echo "DEVICE_SHORT_NAME=${{ matrix.device.value }}" >> $GITHUB_ENV
