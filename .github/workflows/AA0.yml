@@ -1,14 +1,13 @@
 # 文件名: .github/workflows/build.yml
 
-#name: Compile OpenWrt Firmware for IPQ60XX (ARM64)
-name: AA0
+name: Compile OpenWrt Firmware for IPQ60XX (ARM64)
 
 on:
   # 手动触发
   workflow_dispatch:
   # 每周予权力北京时间0点（UTC周一16点）触发
   schedule:
-    - cron: '0 16 * * 4'
+    - cron: '0 16 * * 5'
 
 jobs:
   build_all_configs:
